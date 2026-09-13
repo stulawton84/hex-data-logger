@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hex Data Logger</title>
+    <!-- Libraries for Camera Scanning, Excel Export, and Barcode Generation -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+            --border: #e2e8f0;
+            --success: #16a34a;
+            --warning: #d97706;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg); color: var(--text); padding-bottom: 30px; }
+
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 { font-size: 1.1rem; font-weight: 600; }
+
+        .container { max-width: 900px; margin: 15px auto; padding: 0 10px; }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid var(--border);
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #334155;
+        }
+
+        .step-badge {
+            background: var(--primary);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .form-group { display: flex; flex-direction: column; }
+        .form-group label { font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #475569; }
+        
+        .form-group input, .form-group select {
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 1rem;
+            background-color: white;
+        }
+
+        .scan-banner {
+            background: #eff6ff;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.05rem;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        #reader { width: 100%; border-radius: 8px; overflow: hidden; background: #000; }
+
+        .manual-entry-box {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px dashed var(--border);
+        }
+
+        .manual-entry-form {
+            display: flex;
+            gap: 8px;
+        }
+
+        .manual-entry-form input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-family: monospace;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        /* Success / Next Station Prompt Overlay */
+        #success-prompt-card {
+            background: #f0fdf4;
+            border: 2px solid var(--success);
+            text-align: center;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .success-title {
+            color: var(--success);
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .actions { margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+        .btn {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-secondary { background: #e2e8f0; color: #334155; }
+
+        .table-container { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
+        th { background: #f1f5f9; padding: 10px; color: #475569; position: sticky; top: 0; }
+        td { padding: 10px; border-bottom: 1px solid var(--border); color: #334155; white-space: nowrap; vertical-align: middle; }
+        tr.active-row { background-color: #fef3c7; font-weight: bold; }
+
+        .barcode-svg { height: 45px; width: auto; }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            border-radius: 20px;
+            background: #1e293b;
+            color: white;
+            font-size: 0.85rem;
+            display: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1><i class="fa-solid fa-microchip"></i> Hex Data Logger</h1>
+        <span id="record-count" style="font-size: 0.85rem;">0 Records</span>
+    </header>
+
+    <div class="container">
+        
+        <!-- STEP 1: SETUP FORM -->
+        <div id="setup-step" class="card">
+            <div class="card-title">
+                <span class="step-badge">Step 1</span> Select Location & Stations
+            </div>
+            <form id="setupForm">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Hole Number</label>
+                        <select id="Hole" required>
+                            <option value="">Select Hole...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Area</label>
+                        <select id="Area" required>
+                            <option value="">Select Area...</option>
+                            <option value="Greens">Greens</option>
+                            <option value="Approaches">Approaches</option>
+                            <option value="Surrounds">Surrounds</option>
+                            <option value="Tees">Tees</option>
+                            <option value="Fairways">Fairways</option>
+                            <option value="Walkways">Walkways</option>
+                            <option value="Lawns">Lawns</option>
+                            <option value="Practice Area">Practice Area</option>
+                            <option value="Driving Range">Driving Range</option>
+                            <option value="Putting Green">Putting Green</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Number of Stations</label>
+                        <input type="number" id="Num_Stations" min="1" max="100" placeholder="e.g. 5" required>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fa-solid fa-camera"></i> Start Scanning Batch
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- SUCCESS / PROMPT TO MOVE ON CARD -->
+        <div id="success-prompt-card">
+            <div class="success-title">
+                <i class="fa-solid fa-circle-check"></i> Code Logged Successfully!
+            </div>
+            <p id="logged-summary-text" style="font-size: 1rem; color: #166534; margin-bottom: 15px; font-weight: 500;"></p>
+            <button class="btn btn-success" onclick="proceedToNextStation()" style="font-size: 1.05rem; padding: 14px;">
+                <i class="fa-solid fa-arrow-right"></i> Move on to Next Code
+            </button>
+        </div>
+
+        <!-- STEP 2: SCANNING & MANUAL ENTRY VIEW -->
+        <div id="scan-step" class="card" style="display: none;">
+            <div class="card-title" style="justify-content: space-between;">
+                <span><span class="step-badge">Step 2</span> Scan or Enter Hex Code</span>
+                <button class="btn btn-secondary" onclick="resetSetupView()" style="padding: 6px 12px; font-size: 0.8rem; flex: none;">
+                    <i class="fa-solid fa-pen"></i> Change Setup
+                </button>
+            </div>
+            
+            <div id="scan-banner" class="scan-banner">
+                <i class="fa-solid fa-qrcode"></i> Target: <span id="target-prompt">Station 1</span>
+            </div>
+
+            <div id="reader"></div>
+
+            <!-- MANUAL HEX ENTRY -->
+            <div class="manual-entry-box">
+                <label style="font-size: 0.85rem; font-weight: 600; color: #475569; display: block; margin-bottom: 6px;">
+                    <i class="fa-solid fa-keyboard"></i> Manual Hex Entry
+                </label>
+                <form id="manualForm" class="manual-entry-form">
+                    <input type="text" id="manualHexInput" placeholder="Enter Hex Code (e.g. 1A2F)" required>
+                    <button type="submit" class="btn btn-primary" style="flex: none; padding: 10px 16px; font-size: 0.9rem;">
+                        <i class="fa-solid fa-check"></i> Submit
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- LOGGED RECORDS TABLE -->
+        <div class="card">
+            <div class="card-title" style="justify-content: space-between;">
+                <span><i class="fa-solid fa-table"></i> Spreadsheet Entries</span>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-secondary" onclick="clearAllData()" style="padding: 6px 12px; font-size: 0.8rem; flex: none;">
+                        <i class="fa-solid fa-trash"></i> Clear All
+                    </button>
+                    <button class="btn btn-success" onclick="exportToExcel()" style="padding: 6px 12px; font-size: 0.85rem; flex: none;">
+                        <i class="fa-solid fa-file-excel"></i> Export Excel
+                    </button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Hole</th>
+                            <th>Area</th>
+                            <th>Station</th>
+                            <th>Station_Number (HEX)</th>
+                            <th>Generated Barcode</th>
+                            <th>Decoder_ID</th>
+                            <th>Satellite_ID</th>
+                            <th>Arc</th>
+                            <th>Nozzle</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody id="data-table"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        // Populate Hole dropdown (1-19)
+        const holeSelect = document.getElementById('Hole');
+        for (let i = 1; i <= 19; i++) {
+            const option = document.createElement('option');
+            option.value = i;
+            option.textContent = `Hole ${i}`;
+            holeSelect.appendChild(option);
+        }
+
+        let records = JSON.parse(localStorage.getItem('loggedRecords') || '[]');
+        let activeIndex = -1;
+        let html5QrcodeScanner = null;
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 2500);
+        }
+
+        function validateHex(text) {
+            return text.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+        }
+
+        // Handle Setup Form Submission
+        document.getElementById('setupForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const hole = document.getElementById('Hole').value;
+            const area = document.getElementById('Area').value;
+            const count = parseInt(document.getElementById('Num_Stations').value);
+
+            for (let i = 1; i <= count; i++) {
+                records.push({
+                    Hole: hole,
+                    Area: area,
+                    Station: `Station ${i}`,
+                    Station_Number: '', 
+                    Decoder_ID: '',
+                    Satellite_ID: '',
+                    Arc: '',
+                    Nozzle: '',
+                    Timestamp: ''
+                });
+            }
+
+            localStorage.setItem('loggedRecords', JSON.stringify(records));
+            showToast(`Created ${count} stations for Hole ${hole} (${area})`);
+            
+            document.getElementById('setup-step').style.display = 'none';
+            document.getElementById('success-prompt-card').style.display = 'none';
+            document.getElementById('scan-step').style.display = 'block';
+
+            if (!html5QrcodeScanner) {
+                html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 150 } }, false);
+                html5QrcodeScanner.render(onScanSuccess);
+            }
+
+            checkNextTarget();
+        });
+
+        // Handle Manual Form Submission
+        document.getElementById('manualForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const inputField = document.getElementById('manualHexInput');
+            const code = inputField.value.trim();
+
+            if (!code) return;
+
+            processHexEntry(code);
+            inputField.value = ''; 
+        });
+
+        function resetSetupView() {
+            document.getElementById('setup-step').style.display = 'block';
+            document.getElementById('scan-step').style.display = 'none';
+            document.getElementById('success-prompt-card').style.display = 'none';
+        }
+
+        function checkNextTarget() {
+            activeIndex = records.findIndex(r => !r.Station_Number);
+
+            if (activeIndex !== -1) {
+                const target = records[activeIndex];
+                document.getElementById('target-prompt').innerText = 
+                    `Hole ${target.Hole} - ${target.Area} (${target.Station})`;
+            } else {
+                document.getElementById('target-prompt').innerText = "All Stations Complete!";
+                document.getElementById('scan-step').style.display = 'none';
+                showToast("All stations complete for this batch!");
+            }
+            renderTable();
+        }
+
+        function processHexEntry(rawText) {
+            if (activeIndex === -1) {
+                showToast("Batch finished! Switch to Step 1 to add more stations.");
+                return;
+            }
+
+            const hexCode = validateHex(rawText) || rawText.toUpperCase();
+            const target = records[activeIndex];
+            
+            target.Station_Number = hexCode;
+            target.Timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+            localStorage.setItem('loggedRecords', JSON.stringify(records));
+            renderTable();
+
+            // Hide scanner interface and display the "Move on to next code" prompt card
+            document.getElementById('scan-step').style.display = 'none';
+            document.getElementById('logged-summary-text').innerText = 
+                `Logged Code "${hexCode}" for Hole ${target.Hole} - ${target.Area} (${target.Station})`;
+            document.getElementById('success-prompt-card').style.display = 'block';
+            
+            showToast(`Logged Station_Number: ${hexCode}`);
+        }
+
+        function proceedToNextStation() {
+            document.getElementById('success-prompt-card').style.display = 'none';
+            document.getElementById('scan-step').style.display = 'block';
+            checkNextTarget();
+        }
+
+        function onScanSuccess(decodedText) {
+            // Only process if scanner view is active (prevents double triggers while viewing success card)
+            if (document.getElementById('scan-step').style.display !== 'none') {
+                processHexEntry(decodedText);
+            }
+        }
+
+        function renderTable() {
+            document.getElementById('record-count').innerText = `${records.length} Records`;
+            const tbody = document.getElementById('data-table');
+            tbody.innerHTML = '';
+
+            records.forEach((row, i) => {
+                const tr = document.createElement('tr');
+                if (i === activeIndex && document.getElementById('scan-step').style.display !== 'none') {
+                    tr.classList.add('active-row');
+                }
+
+                const barcodeCellId = `barcode-svg-${i}`;
+
+                tr.innerHTML = `
+                    <td>${i + 1}</td>
+                    <td>${row.Hole || ''}</td>
+                    <td>${row.Area || ''}</td>
+                    <td>${row.Station || ''}</td>
+                    <td><strong style="color: var(--primary); font-family: monospace;">${row.Station_Number || 'PENDING'}</strong></td>
+                    <td><svg id="${barcodeCellId}" class="barcode-svg"></svg></td>
+                    <td>${row.Decoder_ID || ''}</td>
+                    <td>${row.Satellite_ID || ''}</td>
+                    <td>${row.Arc || ''}</td>
+                    <td>${row.Nozzle || ''}</td>
+                    <td>${row.Timestamp || ''}</td>
+                `;
+                tbody.appendChild(tr);
+
+                if (row.Station_Number) {
+                    try {
+                        JsBarcode(`#${barcodeCellId}`, row.Station_Number, {
+                            format: "CODE39",
+                            width: 1.5,
+                            height: 35,
+                            displayValue: false
+                        });
+                    } catch (err) {
+                        console.error("Barcode generation error", err);
+                    }
+                }
+            });
+        }
+
+        function clearAllData() {
+            if (confirm("Clear all recorded data?")) {
+                records = [];
+                localStorage.removeItem('loggedRecords');
+                resetSetupView();
+                renderTable();
+                showToast("Records cleared.");
+            }
+        }
+
+        function exportToExcel() {
+            if (records.length === 0) {
+                showToast("No data to export!");
+                return;
+            }
+
+            const excelData = records.map(r => ({
+                'Hole': r.Hole,
+                'Area': r.Area,
+                'Station': r.Station,
+                'Decoder_ID': r.Decoder_ID,
+                'Satellite_ID': r.Satellite_ID,
+                'Station_Number': r.Station_Number, 
+                'Barcode_Print_Text': r.Station_Number ? `*${r.Station_Number}*` : '', 
+                'Arc': r.Arc,
+                'Nozzle': r.Nozzle,
+                'Timestamp': r.Timestamp
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(excelData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+
+            XLSX.writeFile(workbook, "Data Logger_2.xlsx");
+            showToast("Downloaded Data Logger_2.xlsx");
+        }
+
+        renderTable();
+    </script>
+</body>
+</html>
